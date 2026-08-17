@@ -1,16 +1,20 @@
 {
   "id": "cpb2",
   "name": "CMF Buds Pro 2",
-  "verified": false,
+  "verified": true,
   "match": {
-    "model_codes": [],
+    "model_codes": ["87b1"],
     "name_patterns": ["cmf buds pro 2"]
   },
   "features": {
+    "codec": {
+      "label": "Audio codec"
+    },
     "low_latency": {},
     "dual_connection": {},
-    "spatial_audio": {}
+    "spatial_audio": {},
+    "bass_boost": {}
   },
   "anc_levels": [1, 2, 3],
-  "notes": "PARTIALLY VERIFIED. Confirmed on hardware: RFCOMM channel 15, protocol 1.0.1, three-unit battery (left/right/case, type 3), ANC switching audible. NOT yet verified: the model code (documented elsewhere as B172 'espeon', not read back here), and whether this model carries a hi-res codec at all -- `codec` is therefore left out rather than shown as unavailable. Runtime probing will reveal it if 0xC029 answers."
+  "notes": "Model code 87b1 and firmware 1.0.1.74 read from the device; protocol 1.0.1. ⚠️ THIS MODEL ACKNOWLEDGES EVERY QUERY, answering unsupported ones with an empty payload rather than staying silent like the Ear (3a) — so a probe must treat a zero-length reply as 'unsupported', not as a value. Codec values are left unlisted: 0xC029 answers 0x00, so a selector exists, but which values are real here has not been read back. The case carries a volume dial: the gesture table exposes it as side 0x04 (neither 0x02 left nor 0x03 right) with TWO button ids, 0x01 and 0x09 — the only place where that field is not constant. All its rows carry action 0x01, so its functions appear to be fixed rather than remappable. Absent on this model: advanced EQ (0xC06C/0xC06D), the Mimi group (0xC022-0xC025), and 0xC062."
 }

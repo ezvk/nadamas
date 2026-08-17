@@ -40,10 +40,23 @@ this way (AV/C passthrough operands: 0x44 PLAY, 0x46 PAUSE, 0x4b FORWARD,
 0x4c BACKWARD, 0x41/0x42 volume).
 """
 
-# Earbud side, same encoding as the wear/battery entries elsewhere.
+# "Side", same encoding as the wear/battery entries elsewhere -- plus one the
+# earbuds alone never reveal.
+#
+# ⚠️ 0x04 IS THE CHARGING CASE, not a third earbud. Measured on a CMF Buds
+# Pro 2, whose case carries a volume dial: its table has fifteen rows against
+# the Ear (3a)'s twelve, and the extra ones all sit on side 0x04. That model is
+# also the only place where the `button` field stops being constant -- the case
+# uses 0x01 AND 0x09, one per control, which is finally an explanation for a
+# field that looks pointless on devices without a case control.
+#
+# Every case row carries action 0x01, so those functions look fixed rather than
+# remappable. Which is moot here anyway: writes to this table do not change
+# behaviour (see above).
 SIDE_LEFT = 0x02
 SIDE_RIGHT = 0x03
-SIDES = {SIDE_LEFT: "Left", SIDE_RIGHT: "Right"}
+SIDE_CASE = 0x04
+SIDES = {SIDE_LEFT: "Left", SIDE_RIGHT: "Right", SIDE_CASE: "Case"}
 
 # Gesture ids, in the order the device lists them.
 #   0x02 / 0x03: measured on hardware (AVRCP PLAY / FORWARD respectively)
