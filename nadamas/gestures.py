@@ -1,23 +1,31 @@
 """Touch-control table (0xC018), READ ONLY -- and that is a measurement, not a
 design choice.
 
-⚠️ DO NOT BUILD A GESTURE EDITOR ON 0xF003. The write is accepted, the table
-reads back with the new value, and the earbuds keep doing what they did before.
-Measured on a Nothing Ear (3a):
+⚠️ WRITING THIS TABLE IS NOT YET SOLVED -- and the first version of this file
+said something stronger and wrong, so here is the whole picture.
 
-    double press, action 0x08 (stock)      → AVRCP FORWARD
-    double press, action 0x16 (written)    → AVRCP FORWARD   unchanged
-    double press, action 0x09 (written)    → AVRCP FORWARD   unchanged
+Writes via 0xF003 are accepted and the table reads back with the new value,
+but the earbuds keep their previous behaviour. Measured three times on a
+Nothing Ear (3a):
 
-Three writes, each confirmed by reading the table back, each with no effect on
-behaviour. A UI offering to remap gestures would therefore lie to the user in
-the most convincing way possible: the control moves, the table agrees, and
-nothing happens. Exposing the table read-only is honest; exposing the write is
-not, until someone finds what makes the firmware apply it (a power cycle in the
-case, a companion-app handshake, or a commit command nobody has found yet).
+    double press, action 0x08 (stock)    → AVRCP FORWARD
+    double press, action 0x16 (written)  → AVRCP FORWARD   unchanged
+    double press, action 0x09 (written)  → AVRCP FORWARD   unchanged
 
-The same lesson in one line: on this protocol an ACK means "frame received",
-never "setting applied". Verify against behaviour, not against the read-back.
+From that this file concluded "the table is cosmetic, never build an editor".
+That conclusion is FALSE, and the counter-example is decisive: the official
+Android app was used to reassign the case controls of a CMF Buds Pro 2, and
+both the table AND the behaviour changed -- five rows on side 0x04, and the
+dial then drove system volume through AVRCP.
+
+So the table is real and writable. What is missing is on OUR side: a commit
+step, a sequence, or a field this code fills wrongly. Until that is found,
+the table stays read-only here -- shipping an editor that half-works would be
+worse than shipping none, because the control would move and the table would
+agree while the device ignored both.
+
+The lesson that does survive: an ACK means "frame received", never "setting
+applied", and a correct read-back is not proof either. Only behaviour is.
 
 WHAT THE TABLE CONTAINS. One row per (earbud, button, gesture), each carrying
 the action that gesture triggers. Measured on a Nothing Ear (3a): twelve rows,
@@ -82,10 +90,13 @@ GESTURES = {
 
 # Action ids. Only the first two are anchored to observed AVRCP traffic.
 ACTIONS = {
-    0x01: "None",  # inferred
+    0x01: "None",  # inferred: the value every unassigned row carries
+    0x02: "Unknown (0x02)",  # seen only after the Android app assigned it
     0x08: "Next track",  # measured: emits AVRCP FORWARD
     0x09: "Play / pause",  # measured: emits AVRCP PLAY-PAUSE toggle
+    0x0A: "Unknown (0x0a)",  # seen only after the Android app assigned it
     0x16: "Previous track",  # owner-reported
+    0x17: "Unknown (0x17)",  # seen only after the Android app assigned it
     0x25: "Noise control",  # owner-reported; emits no AVRCP
 }
 
