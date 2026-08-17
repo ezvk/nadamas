@@ -1,0 +1,89 @@
+[build-system]
+requires = ["setuptools>=64", "wheel", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name            = "nadamas"
+dynamic         = ["version"]
+description     = "Control Nothing and CMF earbuds from Linux, including LDAC"
+readme          = "README.md"
+license         = { text = "MIT" }
+requires-python = ">=3.11"
+keywords        = ["nothing", "bluetooth", "gtk4", "linux", "omarchy", "ear"]
+
+authors = [
+    { name = "ezvk" },
+]
+
+maintainers = [
+    { name = "ezvk" },
+]
+
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: X11 Applications :: GTK",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: Utilities",
+]
+
+dependencies = [
+    "PyGObject>=3.42",
+]
+
+[project.scripts]
+nadamas = "nadamas.application:main"
+
+[tool.setuptools.packages.find]
+where   = ["."]
+include = ["nadamas*"]
+
+[tool.setuptools.package-data]
+nadamas = ["data/*.css", "data/*.desktop", "models/*.json"]
+
+[project.optional-dependencies]
+dev = ["ruff", "pytest", "pytest-cov"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.setuptools_scm]
+# Only vX.Y.Z tags count — dev-HASH pre-release tags are ignored.
+tag_regex             = "^v(?P<version>[0-9]+\\.[0-9]+\\.[0-9]+)$"
+git_describe_command  = ["git", "describe", "--dirty", "--tags", "--long", "--match", "v[0-9]*.[0-9]*.[0-9]*"]
+version_scheme        = "guess-next-dev"
+local_scheme          = "no-local-version"
+version_file          = "nadamas/_version.py"
+
+[tool.semantic_release]
+# Version is tag-only — PSR reads from the last vX.Y.Z tag and writes a new tag.
+# No version_toml / version_variables → no file modifications.
+tag_format             = "v{version}"
+commit_version_number  = false
+commit_message         = ""
+
+[tool.semantic_release.branches.main]
+match      = "main"
+prerelease = false
+
+[tool.semantic_release.branches.develop]
+match             = "develop"
+prerelease        = true
+prerelease_token  = "dev"
+
+[tool.semantic_release.commit_parser_options]
+major_tags  = ["BREAKING CHANGE"]
+minor_tags  = ["feat"]
+patch_tags  = ["fix", "perf", "refactor"]
+
+[tool.ruff]
+line-length = 110
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = [
+    "E402",  # module-level import not at top — required by gi.require_version() pattern
+    "I001",  # import sort — same reason
+]

@@ -1,0 +1,19 @@
+{
+  "id": "nhd1",
+  "name": "Nothing Headphone (1)",
+  "verified": false,
+  "match": {
+    "model_codes": [],
+    "name_patterns": ["nothing headphone"]
+  },
+  "features": {
+    "codec": {
+      "label": "Audio codec"
+    },
+    "low_latency": {},
+    "dual_connection": {},
+    "spatial_audio": {}
+  },
+  "anc_levels": [1, 2, 3],
+  "notes": "PARTIALLY VERIFIED. Confirmed on hardware: RFCOMM channel 15, protocol 1.0.0, single-unit battery (type 6) and wear (type 6), and all seven read commands answering. NOT yet verified: the model code (match falls back to the advertised name), which codec values are real, and whether the advanced equaliser answers. Codec choices are deliberately left unlisted so the generic labels are used rather than a guess -- fill them in once read back from the device."
+}

@@ -1,0 +1,16 @@
+{
+  "id": "cpb2",
+  "name": "CMF Buds Pro 2",
+  "verified": false,
+  "match": {
+    "model_codes": [],
+    "name_patterns": ["cmf buds pro 2"]
+  },
+  "features": {
+    "low_latency": {},
+    "dual_connection": {},
+    "spatial_audio": {}
+  },
+  "anc_levels": [1, 2, 3],
+  "notes": "PARTIALLY VERIFIED. Confirmed on hardware: RFCOMM channel 15, protocol 1.0.1, three-unit battery (left/right/case, type 3), ANC switching audible. NOT yet verified: the model code (documented elsewhere as B172 'espeon', not read back here), and whether this model carries a hi-res codec at all -- `codec` is therefore left out rather than shown as unavailable. Runtime probing will reveal it if 0xC029 answers."
+}

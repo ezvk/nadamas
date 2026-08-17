@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Nadamas
+GenericName=Bluetooth Device Manager
+Comment=Manage Nothing and CMF Bluetooth devices
+Exec=nadamas
+Icon=audio-headphones
+Categories=Utility;GTK;HardwareSettings;
+Keywords=bluetooth;nothing;ear;cmf;audio;headphones;earbuds;
+Terminal=false
+StartupNotify=true
+StartupWMClass=io.github.ezvk.nadamas

@@ -1,0 +1,24 @@
+{
+  "id": "ne3a",
+  "name": "Nothing Ear (3a)",
+  "verified": true,
+  "match": {
+    "model_codes": ["90b1"],
+    "name_patterns": ["nothing ear (3a)", "ear (3a)"]
+  },
+  "features": {
+    "codec": {
+      "label": "Audio codec",
+      "choices": {
+        "0": "Standard (AAC/SBC)",
+        "2": "LDAC (hi-res)"
+      }
+    },
+    "low_latency": {},
+    "dual_connection": {},
+    "spatial_audio": {},
+    "bass_boost": {}
+  },
+  "anc_levels": [1, 2, 3],
+  "notes": "Codec values 1 (LHDC) and 3 are accepted and stored by the firmware but produce no A2DP endpoint on this model, so they are omitted here. Reconnect after changing the codec: the endpoint set is fixed at A2DP negotiation. The advanced per-band equaliser (0xC06C/0xC06D) and the Mimi personalised-audio group (0xC022-0xC025) do not answer on this model."
+}
