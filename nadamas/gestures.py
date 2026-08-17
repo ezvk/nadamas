@@ -56,7 +56,17 @@ this way (AV/C passthrough operands: 0x44 PLAY, 0x46 PAUSE, 0x4b FORWARD,
 SIDE_LEFT = 0x02
 SIDE_RIGHT = 0x03
 SIDE_CASE = 0x04
-SIDES = {SIDE_LEFT: "Left", SIDE_RIGHT: "Right", SIDE_CASE: "Case"}
+# 0x06 = the whole device on single-unit hardware. The Nothing Headphone (1)
+# uses it in the gesture table, and also for its battery and wear entries --
+# the same "type 6" that means "one unit, no left/right, no case" everywhere
+# else in this protocol. Its table has three rows across two button ids.
+SIDE_SINGLE = 0x06
+SIDES = {
+    SIDE_LEFT: "Left",
+    SIDE_RIGHT: "Right",
+    SIDE_CASE: "Case",
+    SIDE_SINGLE: "Device",
+}
 
 # Gesture ids, in the order the device lists them.
 #   0x02 / 0x03: measured on hardware (AVRCP PLAY / FORWARD respectively)

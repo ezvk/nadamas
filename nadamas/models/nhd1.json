@@ -1,19 +1,25 @@
 {
   "id": "nhd1",
   "name": "Nothing Headphone (1)",
-  "verified": false,
+  "verified": true,
   "match": {
-    "model_codes": [],
+    "model_codes": ["70b1"],
     "name_patterns": ["nothing headphone"]
   },
   "features": {
     "codec": {
-      "label": "Audio codec"
+      "label": "Audio codec",
+      "choices": {
+        "0": "Standard (AAC/SBC)",
+        "2": "LDAC (hi-res)"
+      }
     },
     "low_latency": {},
     "dual_connection": {},
-    "spatial_audio": {}
+    "spatial_audio": {},
+    "bass_boost": {},
+    "smart_anc": {}
   },
   "anc_levels": [1, 2, 3],
-  "notes": "PARTIALLY VERIFIED. Confirmed on hardware: RFCOMM channel 15, protocol 1.0.0, single-unit battery (type 6) and wear (type 6), and all seven read commands answering. NOT yet verified: the model code (match falls back to the advertised name), which codec values are real, and whether the advanced equaliser answers. Codec choices are deliberately left unlisted so the generic labels are used rather than a guess -- fill them in once read back from the device."
+  "notes": "Model code 70b1, firmware 1.0.1.81, protocol 1.0.0 — all read from the device. Codec value 2 verified: a third A2DP endpoint appears and PipeWire negotiates LDAC. Single-unit device throughout: battery, wear AND the gesture table all use side/type 0x06, where the earbuds use 0x02/0x03 and a charging case uses 0x04. Only three gesture rows, across two button ids (0x01 and 0x0a). Carries 0xC055 (adaptive ANC), absent on both the Ear (3a) and the CMF Buds Pro 2, plus 0xC05A/0xC05B which no other model here answers. Absent: advanced EQ (0xC06C/0xC06D) and the Mimi group (0xC022-0xC025)."
 }
