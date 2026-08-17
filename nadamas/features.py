@@ -26,7 +26,14 @@ Verified on a Nothing Ear (3a), firmware 1.0.1.65:
 
     codec           A third A2DP endpoint appears/disappears (vendor 0x012d)
     ANC on/off      audible
-    ANC strength    audible, High vs Low
+    ANC strength    audible, High vs Low; FOUR levels exist (1-4), the
+                    fourth being Adaptive -- upstream ships only three
+    ANC mode field  swept 0x00-0x0f: exactly six values are accepted
+                    (0x01-0x05 and 0x07), the rest leave the mode
+                    unchanged. Six accepted values, six user-facing
+                    states -- the mapping is forced by counting:
+                    1/2/3/4 = ANC High/Mid/Low/Adaptive, 5 = Off,
+                    7 = Transparency
     EQ presets      audible, More Bass vs More Treble
     spatial audio   audible, stereo image widens
     bass boost      audible, markedly muffled at level 6

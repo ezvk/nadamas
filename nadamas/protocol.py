@@ -81,6 +81,10 @@ _ANC_OFF = 5  # MODE_NOISE_REDUCTION_CLOSE
 _ANC_STRONG = 1  # MODE_NOISE_REDUCTION_STRONG  (confirmed working)
 _ANC_MEDIUM = 2  # MODE_NOISE_REDUCTION_MEDIUM
 _ANC_WEAK = 3  # MODE_NOISE_REDUCTION_WEAK
+# ⚠️ ABSENT DES CONSTANTES AMONT alors que son parseur accepte 1-4 : c'est le
+# mode adaptatif, que l'application officielle propose et que beaucoup
+# laissent actif en permanence.
+_ANC_ADAPTIVE = 4  # MODE_NOISE_REDUCTION_ADAPTIVE
 _ANC_TRANSPARENCY = 7  # MODE_PASS_THROUGH
 
 # ── Legacy 0x03/0x02 protocol (ch17 status-only stream) ──────────────────────
@@ -108,17 +112,27 @@ class ANCMode:
 class ANCLevel:
     """Noise-cancellation strength, applied when the mode is NOISE_CANCELLATION.
 
-    These are the wire values already defined above (_ANC_STRONG/_MEDIUM/_WEAK).
-    The device reports its current level in the 0xC01E response as a type-2 entry
-    and _parse_anc has always stored it -- but _do_set_anc ignored it and sent
-    _ANC_STRONG unconditionally, so Medium and Low could be read yet never set.
+    The device reports its current level in the 0xC01E response as a type-2
+    entry and _parse_anc has always stored it -- but _do_set_anc ignored it and
+    sent _ANC_STRONG unconditionally, so nothing but High could ever be set.
+
+    ⚠️ FOUR LEVELS, NOT THREE. Upstream defines only STRONG/MEDIUM/WEAK as
+    constants, yet its own parser accepts "level val 1-4" -- and the missing
+    fourth is ADAPTIVE, confirmed by the owner of a Nothing Ear (3a) against
+    the official app, which offers Adaptive / Low / Mid / High. Shipping three
+    would silently drop the mode people actually leave enabled.
+
+    The overall shape is three states, one of which has these four strengths:
+
+        Off  ·  Transparency  ·  ANC → Adaptive / Low / Mid / High
     """
 
     HIGH = _ANC_STRONG
     MID = _ANC_MEDIUM
     LOW = _ANC_WEAK
-    LABELS = {HIGH: "High", MID: "Mid", LOW: "Low"}
-    ALL = (HIGH, MID, LOW)
+    ADAPTIVE = _ANC_ADAPTIVE
+    LABELS = {ADAPTIVE: "Adaptive", HIGH: "High", MID: "Mid", LOW: "Low"}
+    ALL = (ADAPTIVE, HIGH, MID, LOW)
 
 
 EQ_PRESETS = {
@@ -816,7 +830,7 @@ class NothingDevice(GObject.Object):
                                     "critical",
                                     "-i",
                                     "battery-caution",
-                                    "Nadamas",
+                                    "Something X",
                                     f"{label}: {pct}% battery remaining",
                                 ],
                             ),

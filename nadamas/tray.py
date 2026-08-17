@@ -23,7 +23,7 @@ class _SNIItem(dbus.service.Object):
         super().__init__(bus_name, _ITEM_PATH)
         self._on_activate = on_activate
         self._icon_name = "audio-headphones"
-        self._tooltip_title = "Nadamas"
+        self._tooltip_title = "Something X"
         self._tooltip_body = ""
 
     # ── SNI methods ────────────────────────────────────────────────────────────
@@ -79,9 +79,9 @@ class _SNIItem(dbus.service.Object):
             signature="sa(iiay)ss",
         )
         return {
-            "Id": dbus.String("nadamas"),
+            "Id": dbus.String("something-x"),
             "Category": dbus.String("Hardware"),
-            "Title": dbus.String("Nadamas"),
+            "Title": dbus.String("Something X"),
             "Status": dbus.String("Active"),
             "WindowId": dbus.UInt32(0),
             "IconName": dbus.String(self._icon_name),
@@ -222,15 +222,21 @@ class NadamasTray(GObject.Object):
                             }
                         )
                 elif feat.kind == "toggle":
-                    on = cur[0] if isinstance(cur, tuple) else cur
+                    # ⚠️ PRESERVE THE SECOND BYTE ON PAIR-ENCODED SETTINGS. Bass
+                    # boost reads back as [enabled, level] -- [0x00, 0x06] on a
+                    # stock Ear (3a). Sending a bare 1 encodes to [0x01, 0x00],
+                    # which switches it on AND resets the level to zero: the
+                    # control lights up and nothing is audible, which reads as a
+                    # dead command rather than as the bug it is.
+                    is_pair = isinstance(cur, tuple)
+                    on = cur[0] if is_pair else cur
+                    nxt = (0 if on else 1, cur[1]) if is_pair else (0 if on else 1)
                     items.append(
                         {
                             "label": f"   {label}",
                             "toggle": "checkmark",
                             "checked": bool(on),
-                            "action": (
-                                lambda d=nd, k=feat.key, v=(0 if on else 1): d.set_feature(k, v)
-                            ),
+                            "action": (lambda d=nd, k=feat.key, v=nxt: d.set_feature(k, v)),
                         }
                     )
 
@@ -240,7 +246,7 @@ class NadamasTray(GObject.Object):
             items.append({"label": "No device connected", "enabled": False})
             items.append({"separator": True})
 
-        items.append({"label": "Open Nadamas", "action": self._on_show})
+        items.append({"label": "Open Something X", "action": self._on_show})
         if self._on_quit:
             items.append({"label": "Quit", "action": self._on_quit})
         return items
@@ -273,11 +279,11 @@ class NadamasTray(GObject.Object):
             parts = []
             if dev.battery is not None:
                 parts.append(f"{dev.name}: {dev.battery}%")
-            self._item.set_tooltip("Nadamas", "\n".join(parts) if parts else "Connected")
+            self._item.set_tooltip("Something X", "\n".join(parts) if parts else "Connected")
             self._item.set_icon(device_icon_name(dev))
         else:
             # fall back to first paired Nothing device, or generic icon
             paired = nothing_devs[0] if nothing_devs else None
             icon = device_icon_name(paired) if paired else "audio-headphones"
-            self._item.set_tooltip("Nadamas", "No devices connected")
+            self._item.set_tooltip("Something X", "No devices connected")
             self._item.set_icon(icon)
