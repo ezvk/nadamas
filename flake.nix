@@ -71,6 +71,18 @@
             }"
           ];
 
+          # ⚠️ LE .desktop EST INSTALLÉ ICI, ET C'EST UNE CORRECTION DE L'AMONT.
+          # Il n'existait que dans les données Python du paquet, copié vers
+          # ~/.local/share/applications par l'application AU PREMIER LANCEMENT.
+          # Conséquence : l'application n'apparaît pas dans le lanceur tant
+          # qu'on ne l'a pas démarrée autrement -- exactement l'inverse de ce à
+          # quoi sert une entrée de bureau. Installée dans le paquet, elle est
+          # visible dès l'ajout à l'environnement.
+          postInstall = ''
+            install -Dm444 nadamas/data/io.github.ezvk.nadamas.desktop \
+              $out/share/applications/io.github.ezvk.nadamas.desktop
+          '';
+
           # The test suite needs a session bus and a display; skip it here and
           # run it in CI where both can be provided.
           doCheck = false;
