@@ -464,18 +464,17 @@ class DevicePage(Gtk.Box):
         settings_group.add_css_class("settings-group")
         settings_group.set_margin_bottom(4)
 
-        self._in_ear_switch = Gtk.Switch()
-        self._in_ear_switch.set_active(True)
-        self._in_ear_switch.set_valign(Gtk.Align.CENTER)
-        self._in_ear_switch.connect("state-set", self._on_in_ear_toggled)
-        settings_group.append(
-            _settings_row(
-                "In-Ear Detection",
-                "Pause when earbuds are removed",
-                self._in_ear_switch,
-            )
-        )
-
+        # ⚠️ ONE SWITCH, TWO LAYERS -- and it used to be two switches for one
+        # visible behaviour. "In-Ear Detection" drove the device's own wear
+        # handling; "Auto-Pause" drove an MPRIS reimplementation in this app.
+        # Same observable effect, so people flipped one, saw nothing, and
+        # flipped the other. Worse, the first sent nothing to the device at all
+        # (see NothingDevice.set_in_ear_detection), so the one that looked
+        # authoritative was the decorative one.
+        #
+        # They are now a single control. The device layer takes priority
+        # because it works with no software running; the MPRIS path stays as a
+        # fallback and is driven by the same switch.
         self._auto_pause_switch = Gtk.Switch()
         self._auto_pause_switch.set_active(
             profiles.get_notify_prefs(self._bt_device.address).get("wear_mpris", False)
@@ -485,7 +484,7 @@ class DevicePage(Gtk.Box):
         settings_group.append(
             _settings_row(
                 "Auto-Pause",
-                "Pause/resume media with wear detection",
+                "Pause when an earbud is removed",
                 self._auto_pause_switch,
             )
         )
@@ -644,8 +643,6 @@ class DevicePage(Gtk.Box):
         self._sync_anc_ui(state.anc_mode)
         self._sync_eq_ui(state.eq_preset)
         self._updating_ui = True
-        if hasattr(self, "_in_ear_switch"):
-            self._in_ear_switch.set_active(state.in_ear_detection)
         self._updating_ui = False
         if hasattr(self, "_fw_label"):
             self._fw_label.set_label(state.firmware_version or "—")
@@ -716,7 +713,11 @@ class DevicePage(Gtk.Box):
             self._save_nickname()
 
     def _on_auto_pause_toggled(self, _switch, state: bool):
+        # Both layers, from one switch: the device's own wear handling and the
+        # MPRIS fallback this app provides.
         profiles.set_notify_prefs(self._bt_device.address, {"wear_mpris": state})
+        if self._nothing_dev:
+            self._nothing_dev.set_in_ear_detection(state)
         return False
 
     def _on_notif_battery_toggled(self, _switch, state: bool):
@@ -805,12 +806,7 @@ class DevicePage(Gtk.Box):
         if self._nothing_dev:
             self._nothing_dev.set_eq_preset(preset)
 
-    def _on_in_ear_toggled(self, switch: Gtk.Switch, state: bool):
-        if self._updating_ui:
-            return False
-        if self._nothing_dev:
-            self._nothing_dev.set_in_ear_detection(state)
-        return False
+
 
     def _on_conn_btn_clicked(self, _btn):
         if self._bt_device.connected:

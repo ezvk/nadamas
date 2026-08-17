@@ -194,7 +194,7 @@ class NothingDevice(GObject.Object):
         self._thread: threading.Thread | None = None
         self._low_bat_notified: dict[str, set[int]] = {}
         self._low_bat_seen: set[str] = set()
-        self._wear_both_removed: bool = False
+        self._wear_removed: bool = False
         self._wear_paused: bool = False
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -303,9 +303,33 @@ class NothingDevice(GObject.Object):
 
         profiles.save(self.address, self.state.anc_mode, preset)
 
+    # Feature id of in-ear detection inside the 0xC00E toggle table.
+    _FEAT_IN_EAR = 0x01
+
     def set_in_ear_detection(self, enabled: bool):
+        """Turn the DEVICE-SIDE wear detection on or off.
+
+        ⚠️ THIS USED TO SEND NOTHING. Upstream set a local flag and redrew the
+        switch, so the control looked functional and changed no device
+        behaviour -- while a second, unrelated switch (`wear_mpris`) did the
+        same job from the application side. Two switches, one visible effect,
+        and the one people reached for was the decorative one.
+
+        The device table is written through 0xF004 as [count, feature, value];
+        the read side is 0xC00E, whose entries are (feature, enabled) pairs.
+        """
         self.state.in_ear_detection = enabled
         GLib.idle_add(self.emit, "state-changed")
+        if not self._activated:
+            return
+        self._x55_send(
+            0xF004,
+            bytes([0x01, self._FEAT_IN_EAR, 0x01 if enabled else 0x00]),
+            label=f"in-ear detection={'on' if enabled else 'off'}",
+        )
+        # Re-read: the firmware accepts writes for features it does not
+        # implement and simply leaves the table unchanged.
+        GLib.timeout_add(600, lambda: (self._x55_send(0xC00E), False)[1])
 
     # ── Channel discovery ─────────────────────────────────────────────────────
 
@@ -840,17 +864,28 @@ class NothingDevice(GObject.Object):
                 break
 
     def _check_wear_mpris(self):
+        """Pause playback when an earbud comes out, resume when it goes back.
+
+        ⚠️ ON REMOVAL OF *ONE* BUD, NOT BOTH -- upstream required both, and that
+        is the whole reason this feature looked broken. Taking one earbud out to
+        speak to somebody is precisely when the music has to stop; by the time
+        both are out the moment has passed. Reported as "auto pause not working"
+        by an owner who had, of course, removed a single bud.
+
+        Single-unit devices (a headphone, wear type 6) set both flags together,
+        so "either is out" reads correctly there too.
+        """
         from . import profiles
 
         if not profiles.get_notify_prefs(self.address).get("wear_mpris", False):
-            self._wear_both_removed = False
+            self._wear_removed = False
             self._wear_paused = False
             return
 
-        both_removed = not self.state.left_wearing and not self.state.right_wearing
+        removed = not self.state.left_wearing or not self.state.right_wearing
 
-        if both_removed and not self._wear_both_removed:
-            self._wear_both_removed = True
+        if removed and not self._wear_removed:
+            self._wear_removed = True
             self._wear_paused = True
             threading.Thread(
                 target=subprocess.run,
@@ -858,8 +893,8 @@ class NothingDevice(GObject.Object):
                 kwargs={"capture_output": True},
                 daemon=True,
             ).start()
-        elif not both_removed and self._wear_both_removed:
-            self._wear_both_removed = False
+        elif not removed and self._wear_removed:
+            self._wear_removed = False
             if self._wear_paused:
                 self._wear_paused = False
                 threading.Thread(
