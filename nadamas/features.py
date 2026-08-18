@@ -61,13 +61,29 @@ def _u8_out(value: int) -> bytes:
     return bytes([value & 0xFF])
 
 
-def _pair(payload: bytes) -> tuple[int, int]:
-    return (payload[0] if payload else 0, payload[1] if len(payload) > 1 else 0)
+def _pair(payload: bytes):
+    """One byte in, one byte out; two in, two out.
+
+    ⚠️ THE WIDTH MUST SURVIVE THE ROUND TRIP. The same setting is not the same
+    width on every model: spatial audio reads back as `01 00` on a Nothing
+    Ear (3a) and as a bare `00` on a CMF Buds Pro 2. Always returning a pair
+    means always writing two bytes, and a device that expects one acknowledges
+    the frame and ignores it -- the control flips in the menu and the setting
+    does not stick, with nothing logged anywhere.
+
+    So the decoder mirrors what it was given, and the encoder mirrors that.
+    """
+    if not payload:
+        return 0
+    if len(payload) == 1:
+        return payload[0]
+    return (payload[0], payload[1])
 
 
 def _pair_out(value) -> bytes:
-    a, b = value if isinstance(value, (tuple, list)) else (value, 0)
-    return bytes([a & 0xFF, b & 0xFF])
+    if isinstance(value, (tuple, list)):
+        return bytes([value[0] & 0xFF, value[1] & 0xFF])
+    return bytes([value & 0xFF])
 
 
 @dataclass(frozen=True)
