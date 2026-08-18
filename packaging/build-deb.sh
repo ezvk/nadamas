@@ -47,7 +47,7 @@ Version: ${VERSION}
 Section: sound
 Priority: optional
 Architecture: all
-Maintainer: ezvk <ezvk@users.noreply.github.com>
+Maintainer: ezvk <releases@blk23.net>
 Depends: python3 (>= 3.11), python3-gi, python3-dbus, python3-cairo, gir1.2-gtk-4.0, gir1.2-adw-1, bluez
 Recommends: playerctl, libnotify-bin
 Homepage: https://github.com/ezvk/nadamas

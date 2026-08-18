@@ -1,4 +1,4 @@
-# Maintainer: ezvk <ezvk@users.noreply.github.com>
+# Maintainer: ezvk <releases@blk23.net>
 #
 # ⚠️ `python-gobject` AND `libadwaita` ARE BOTH NEEDED, for different reasons.
 # The first provides the Python binding, the second the GTK4/Adw typelibs that
