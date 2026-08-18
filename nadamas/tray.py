@@ -86,7 +86,19 @@ class _SNIItem(dbus.service.Object):
             "Status": dbus.String("Active"),
             "WindowId": dbus.UInt32(0),
             "IconName": dbus.String(self._icon_name),
-            "IconPixmap": self._pixmaps,
+            # ⚠️ VOLONTAIREMENT VIDE. Une version fournissait ici un bitmap
+            # dessine au cairo pour teinter l'icone selon la connexion. Le
+            # panneau l'a acceptee sans erreur -- l'objet SNI se cree, rien
+            # n'est journalise -- et n'a plus rien affiche DU TOUT, parce
+            # qu'un hote qui voit IconPixmap le prefere a IconName et se
+            # retrouve sans rien s'il ne sait pas le lire.
+            #
+            # Le code de rendu reste dans trayicon.py, il est correct et
+            # teste (tailles exactes, 1936 et 4096 octets). Ce qui manque est
+            # de savoir ce que CE panneau attend. Tant qu'on ne le sait pas,
+            # mieux vaut une icone monochrome qui s'affiche qu'une icone
+            # coloree qui disparait.
+            "IconPixmap": _EMPTY_PIXMAPS,
             "OverlayIconName": dbus.String(""),
             "OverlayIconPixmap": _EMPTY_PIXMAPS,
             "AttentionIconName": dbus.String(""),
