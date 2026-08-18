@@ -1,20 +1,16 @@
 import json
 import math
-import re
-import subprocess
-import threading
 import cairo
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Pango", "1.0")
 gi.require_version("PangoCairo", "1.0")
-from gi.repository import Gtk, GLib, PangoCairo
+from gi.repository import Gtk, PangoCairo
 
 from ..bluetooth import BluetoothDevice, BluetoothManager
 from ..protocol import NothingDevice, ANCMode, EQ_PRESETS
 from .. import profiles
-
 
 def _mono_font() -> str:
     available = {f.get_name() for f in PangoCairo.FontMap.get_default().list_families()}
@@ -23,59 +19,7 @@ def _mono_font() -> str:
             return name
     return "monospace"
 
-
 _MONO = _mono_font()
-
-
-def _find_bt_sink(address: str) -> str | None:
-    addr_key = address.replace(":", "_").lower()
-    try:
-        out = subprocess.run(
-            ["pactl", "list", "short", "sinks"],
-            capture_output=True,
-            text=True,
-            timeout=2,
-        ).stdout
-        for line in out.splitlines():
-            if addr_key in line.lower():
-                parts = line.split("\t")
-                if len(parts) >= 2:
-                    return parts[1].strip()
-    except Exception:
-        pass
-    return None
-
-
-def _get_sink_volume(address: str) -> int | None:
-    sink = _find_bt_sink(address)
-    if not sink:
-        return None
-    try:
-        out = subprocess.run(
-            ["pactl", "get-sink-volume", sink],
-            capture_output=True,
-            text=True,
-            timeout=2,
-        ).stdout
-        m = re.search(r"(\d+)%", out)
-        return int(m.group(1)) if m else None
-    except Exception:
-        return None
-
-
-def _set_sink_volume(address: str, pct: int):
-    sink = _find_bt_sink(address)
-    if not sink:
-        return
-    try:
-        subprocess.run(
-            ["pactl", "set-sink-volume", sink, f"{pct}%"],
-            capture_output=True,
-            timeout=2,
-        )
-    except Exception:
-        pass
-
 
 def _battery_color(pct: int) -> tuple[float, float, float]:
     if pct < 0:
@@ -85,7 +29,6 @@ def _battery_color(pct: int) -> tuple[float, float, float]:
     if pct <= 50:
         return (0.94, 0.75, 0.25)
     return (0.56, 0.87, 0.45)
-
 
 class EarbudVisual(Gtk.DrawingArea):
     def __init__(self):
@@ -294,13 +237,11 @@ class EarbudVisual(Gtk.DrawingArea):
         cr.move_to(cx - te.width / 2 - te.x_bearing, cy + R + 14)
         cr.show_text("CASE")
 
-
 def _section(label: str) -> Gtk.Label:
     lbl = Gtk.Label(label=label)
     lbl.add_css_class("section-label")
     lbl.set_xalign(0)
     return lbl
-
 
 def _settings_row(title: str, subtitle: str = "", right_widget: Gtk.Widget | None = None) -> Gtk.Box:
     row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
@@ -325,7 +266,6 @@ def _settings_row(title: str, subtitle: str = "", right_widget: Gtk.Widget | Non
         row.append(right_widget)
     return row
 
-
 class DevicePage(Gtk.Box):
     def __init__(
         self,
@@ -341,15 +281,11 @@ class DevicePage(Gtk.Box):
         self._anc_buttons: list[tuple[int, Gtk.Button]] = []
         self._eq_buttons: list[tuple[str, Gtk.Button]] = []
         self._updating_ui = False
-        self._vol_debounce_id: int | None = None
-        self._vol_handler: int | None = None
         self._bt_conn_handler = bt_manager.connect("device-connected", self._on_bt_device_connected)
         self._bt_disc_handler = bt_manager.connect("device-disconnected", self._on_bt_device_disconnected)
         self._build()
         if bt_device.is_nothing:
             self._connect_nothing(nothing_dev)
-        if bt_device.connected:
-            GLib.timeout_add(800, self._query_volume)
 
     def _build(self):
         scroll = Gtk.ScrolledWindow()
@@ -436,27 +372,6 @@ class DevicePage(Gtk.Box):
             self._eq_buttons.append((preset, btn))
 
         page.append(eq_flow)
-
-        page.append(_section("VOLUME"))
-
-        vol_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        vol_row.set_margin_bottom(4)
-
-        self._vol_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
-        self._vol_scale.set_hexpand(True)
-        self._vol_scale.set_draw_value(False)
-        self._vol_scale.add_css_class("volume-slider")
-        self._vol_scale.set_value(70)
-        self._vol_handler = self._vol_scale.connect("value-changed", self._on_volume_changed)
-
-        self._vol_label = Gtk.Label(label="70%")
-        self._vol_label.add_css_class("volume-label")
-        self._vol_label.set_width_chars(4)
-        self._vol_label.set_xalign(1)
-
-        vol_row.append(self._vol_scale)
-        vol_row.append(self._vol_label)
-        page.append(vol_row)
 
         page.append(_section("SETTINGS"))
 
@@ -629,7 +544,6 @@ class DevicePage(Gtk.Box):
         ]
         if self._nothing_dev.rfcomm_connected:
             self._on_state_changed(self._nothing_dev)
-            GLib.timeout_add(800, self._query_volume)
 
     def _on_state_changed(self, dev: NothingDevice):
         state = dev.state
@@ -648,40 +562,14 @@ class DevicePage(Gtk.Box):
             self._fw_label.set_label(state.firmware_version or "—")
             self._sn_label.set_label(state.serial_number or "—")
 
+
     def _on_rfcomm_connected(self, _dev):
-        GLib.timeout_add(800, self._query_volume)
+        # Talon : ne servait qu'a interroger le volume, retire avec le curseur.
+        # Conserve parce que le signal « connected » y est toujours raccorde.
+        pass
 
     def _on_rfcomm_disconnected(self, _dev):
         pass
-
-    def _query_volume(self):
-        def _run():
-            pct = _get_sink_volume(self._bt_device.address)
-            if pct is not None:
-                GLib.idle_add(self._apply_vol_display, pct)
-
-        threading.Thread(target=_run, daemon=True).start()
-        return False
-
-    def _apply_vol_display(self, pct: int):
-        if not hasattr(self, "_vol_scale") or self._vol_handler is None:
-            return
-        self._vol_scale.handler_block(self._vol_handler)
-        self._vol_scale.set_value(pct)
-        self._vol_label.set_label(f"{pct}%")
-        self._vol_scale.handler_unblock(self._vol_handler)
-
-    def _on_volume_changed(self, scale: Gtk.Scale):
-        pct = int(scale.get_value())
-        self._vol_label.set_label(f"{pct}%")
-        if self._vol_debounce_id is not None:
-            GLib.source_remove(self._vol_debounce_id)
-        self._vol_debounce_id = GLib.timeout_add(150, self._do_set_volume, pct)
-
-    def _do_set_volume(self, pct: int):
-        self._vol_debounce_id = None
-        threading.Thread(target=_set_sink_volume, args=(self._bt_device.address, pct), daemon=True).start()
-        return False
 
     def _sync_anc_ui(self, active_mode: int):
         supported = self._nothing_dev.state.supported_anc_modes if self._nothing_dev else None
@@ -805,8 +693,6 @@ class DevicePage(Gtk.Box):
         self._sync_eq_ui(preset)
         if self._nothing_dev:
             self._nothing_dev.set_eq_preset(preset)
-
-
 
     def _on_conn_btn_clicked(self, _btn):
         if self._bt_device.connected:
