@@ -122,6 +122,18 @@ Or run it directly:
 nix run github:ezvk/nadamas
 ```
 
+**Debian / Ubuntu** — a `.deb` is attached to each release, and
+`packaging/build-deb.sh` rebuilds it from a checkout:
+
+```
+sudo apt install ./nadamas_0.1.0~alpha1_all.deb
+```
+
+**Arch** — `packaging/PKGBUILD`.
+
+Neither is tested as widely as the Nix path; the dependency names were checked
+against Debian 13 and current Arch, but a report either way is welcome.
+
 ---
 
 ## Adding your device

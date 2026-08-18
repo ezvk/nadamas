@@ -1,0 +1,51 @@
+# Maintainer: ezvk <jocelyn.ducasse@gmail.com>
+#
+# ⚠️ `python-gobject` AND `libadwaita` ARE BOTH NEEDED, for different reasons.
+# The first provides the Python binding, the second the GTK4/Adw typelibs that
+# `gi.require_version("Adw", "1")` resolves at runtime. Dropping either gives a
+# program that installs cleanly and fails on its first import, with a message
+# that names neither package.
+#
+# `bluez` is a runtime dependency and not an obvious one: the app shells out to
+# sdptool for RFCOMM channel discovery. Without it discovery falls back to a
+# probe list -- which happens to work on every device tested, so the omission
+# would go unnoticed until it did not.
+
+pkgname=nadamas
+pkgver=0.1.0.alpha1
+pkgrel=1
+pkgdesc="Control Nothing and CMF earbuds from Linux, including the LDAC switch the phone app hides on iOS"
+arch=('any')
+url="https://github.com/ezvk/nadamas"
+license=('MIT')
+depends=(
+  'python'
+  'python-gobject'
+  'python-dbus'
+  'python-cairo'
+  'gtk4'
+  'libadwaita'
+  'bluez'
+)
+optdepends=(
+  'playerctl: pause playback when an earbud is removed'
+  'libnotify: connection and low-battery notifications'
+)
+makedepends=('python-build' 'python-installer' 'python-setuptools' 'python-setuptools-scm' 'python-wheel')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v0.1.0-alpha1.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+  cd "$srcdir/$pkgname-0.1.0-alpha1"
+  # setuptools-scm reads the version from git tags; a release tarball has no
+  # .git, so state it rather than letting the build fall back to 0.0.0.
+  SETUPTOOLS_SCM_PRETEND_VERSION="0.1.0" python -m build --wheel --no-isolation
+}
+
+package() {
+  cd "$srcdir/$pkgname-0.1.0-alpha1"
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -Dm644 nadamas/data/io.github.ezvk.nadamas.desktop \
+    "$pkgdir/usr/share/applications/io.github.ezvk.nadamas.desktop"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
