@@ -632,7 +632,14 @@ class NothingDevice(GObject.Object):
         # re-read if the device declines.
         self.features[key] = value
         GLib.idle_add(self.emit, "state-changed")
-        GLib.timeout_add(600, lambda: (self._x55_send(feat.read_cmd), False)[1])
+        # ⚠️ DEUX RELECTURES, ET LA PREMIERE EST TARDIVE. A 600 ms l'appareil
+        # n'a pas toujours fini d'appliquer et renvoie encore l'ANCIENNE
+        # valeur, qui ecrase alors l'affichage optimiste : le reglage a bien
+        # pris, mais la coche revient en arriere et n'apparait qu'au
+        # redemarrage de l'application. La seconde lecture rattrape les
+        # appareils lents sans retarder l'affichage des rapides.
+        for delay in (1200, 3000):
+            GLib.timeout_add(delay, lambda: (self._x55_send(feat.read_cmd), False)[1])
 
     def _parse_battery(self, payload: bytes) -> bool:
         # payload: [count:1][type:1][val:1]... (DataExtKt.toPairs with leading count byte)
