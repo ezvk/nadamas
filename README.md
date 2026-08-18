@@ -93,7 +93,8 @@ Nothing Ear (3a), firmware 1.0.1.65 — every entry checked against an effect:
 | Spatial audio | audible, stereo image widens |
 | Bass boost | audible, markedly muffled at level 6 |
 | Low latency | measured: sink latency 276.7 ms → 186.7 ms, codec unchanged |
-| Gestures | **refuted**, see above |
+| Auto-pause | verified: removing one earbud pauses, reinserting resumes |
+| Gestures | writes read back but do not change behaviour — see above |
 
 Not present on this model, though the protocol carries them: the advanced
 per-band equaliser (`0xC06C`/`0xC06D`) and the Mimi personalised-audio group

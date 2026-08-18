@@ -39,6 +39,10 @@ Verified on a Nothing Ear (3a), firmware 1.0.1.65:
     bass boost      audible, markedly muffled at level 6
     low latency     MEASURED: sink latency 276.7 ms → 186.7 ms, codec unchanged
 
+    auto-pause      verified end to end on a CMF Buds Pro 2: the wear byte
+                    goes 0x8c -> 0x8a on removal (bit 2) and back, and
+                    playback now stops and resumes with it
+
     dual connection not yet verified -- needs a second host
     gestures        REFUTED, see gestures.py; deliberately not writable here
 """
