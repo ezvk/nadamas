@@ -854,7 +854,7 @@ class NothingDevice(GObject.Object):
                                     "critical",
                                     "-i",
                                     "battery-caution",
-                                    "Something X",
+                                    "Nadamas",
                                     f"{label}: {pct}% battery remaining",
                                 ],
                             ),

@@ -39,6 +39,12 @@
           dependencies = with python.pkgs; [
             pygobject3
             dbus-python
+            # ⚠️ DÉCLARÉ EXPLICITEMENT bien qu'il arrive aussi par pygobject3 :
+            # `pages/device.py` et `trayicon.py` importent `cairo` directement.
+            # Compter sur une dépendance transitive, c'est accepter que le jour
+            # où pygobject3 cesse de la tirer, l'application casse à l'import
+            # d'un module -- donc au lancement, sans rapport visible.
+            pycairo
           ];
 
           # ⚠️ wrapGAppsHook4 AND gobject-introspection ARE BOTH REQUIRED, and
@@ -106,6 +112,7 @@
             python
             python.pkgs.pygobject3
             python.pkgs.dbus-python
+            python.pkgs.pycairo
             python.pkgs.pytest
             pkgs.gtk4
             pkgs.libadwaita

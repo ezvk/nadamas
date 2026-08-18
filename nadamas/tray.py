@@ -8,6 +8,7 @@ from .bluetooth import BluetoothManager, device_icon_name
 from . import features
 from .protocol import ANCLevel, ANCMode, EQ_PRESETS
 from .traymenu import DBusMenu, MENU_PATH
+from . import trayicon
 
 _ITEM_IFACE = "org.kde.StatusNotifierItem"
 _WATCHER_IFACE = "org.kde.StatusNotifierWatcher"
@@ -23,7 +24,7 @@ class _SNIItem(dbus.service.Object):
         super().__init__(bus_name, _ITEM_PATH)
         self._on_activate = on_activate
         self._icon_name = "audio-headphones"
-        self._tooltip_title = "Something X"
+        self._tooltip_title = "Nadamas"
         self._tooltip_body = ""
 
     # ── SNI methods ────────────────────────────────────────────────────────────
@@ -81,11 +82,11 @@ class _SNIItem(dbus.service.Object):
         return {
             "Id": dbus.String("something-x"),
             "Category": dbus.String("Hardware"),
-            "Title": dbus.String("Something X"),
+            "Title": dbus.String("Nadamas"),
             "Status": dbus.String("Active"),
             "WindowId": dbus.UInt32(0),
             "IconName": dbus.String(self._icon_name),
-            "IconPixmap": _EMPTY_PIXMAPS,
+            "IconPixmap": self._pixmaps,
             "OverlayIconName": dbus.String(""),
             "OverlayIconPixmap": _EMPTY_PIXMAPS,
             "AttentionIconName": dbus.String(""),
@@ -106,6 +107,15 @@ class _SNIItem(dbus.service.Object):
         if icon_name != self._icon_name:
             self._icon_name = icon_name
             self.NewIcon()
+
+    def set_connected(self, connected: bool):
+        """Recolour the icon. Redrawn only on a real change -- NewIcon makes
+        every host refetch the bitmaps, and some redraw the whole tray."""
+        if connected == self._connected:
+            return
+        self._connected = connected
+        self._pixmaps = trayicon.pixmaps(connected)
+        self.NewIcon()
 
     def set_tooltip(self, title: str, body: str):
         self._tooltip_title = title
@@ -246,7 +256,7 @@ class NadamasTray(GObject.Object):
             items.append({"label": "No device connected", "enabled": False})
             items.append({"separator": True})
 
-        items.append({"label": "Open Something X", "action": self._on_show})
+        items.append({"label": "Open Nadamas", "action": self._on_show})
         if self._on_quit:
             items.append({"label": "Quit", "action": self._on_quit})
         return items
@@ -279,11 +289,13 @@ class NadamasTray(GObject.Object):
             parts = []
             if dev.battery is not None:
                 parts.append(f"{dev.name}: {dev.battery}%")
-            self._item.set_tooltip("Something X", "\n".join(parts) if parts else "Connected")
+            self._item.set_tooltip("Nadamas", "\n".join(parts) if parts else "Connected")
             self._item.set_icon(device_icon_name(dev))
+            self._item.set_connected(True)
         else:
             # fall back to first paired Nothing device, or generic icon
             paired = nothing_devs[0] if nothing_devs else None
             icon = device_icon_name(paired) if paired else "audio-headphones"
-            self._item.set_tooltip("Something X", "No devices connected")
+            self._item.set_tooltip("Nadamas", "No devices connected")
             self._item.set_icon(icon)
+            self._item.set_connected(False)
