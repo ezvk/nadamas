@@ -151,115 +151,138 @@ class NadamasTray(GObject.Object):
     # ── menu contents ─────────────────────────────────────────────────────────
 
     def _menu_items(self):
-        """Rebuilt each time the host is about to draw the menu."""
-        items = []
+        """Rebuilt each time the host is about to draw the menu.
+
+        ⚠️ NESTED, AND FLATTENED WHEN THERE IS ONLY ONE DEVICE. A flat list of
+        every mode, strength, preset and codec runs past twenty entries with a
+        single pair of earbuds -- unusable, and three devices make it absurd.
+        But nesting a lone device under its own name costs an extra click for
+        nothing, so its groups sit at top level and the device name is only
+        used as a submenu when several are connected.
+        """
         by_path = self._nothing_devices()
+        connected = []
         for bt_dev in self._bt.get_nothing_devices():
             if not bt_dev.connected:
                 continue
             nd = by_path.get(bt_dev.path)
-            if nd is None:
-                continue
-            title = bt_dev.name
-            if bt_dev.battery is not None:
-                title = f"{title} — {bt_dev.battery}%"
-            items.append({"label": title, "enabled": False})
+            if nd is not None:
+                connected.append((bt_dev, nd))
 
-            supported = getattr(nd.state, "supported_anc_modes", None)
-            for mode in (ANCMode.OFF, ANCMode.NOISE_CANCELLATION, ANCMode.TRANSPARENCY):
-                if supported is not None and mode not in supported:
-                    continue
-                items.append(
-                    {
-                        "label": f"   {ANCMode.LABELS[mode]}",
-                        "toggle": "radio",
-                        "checked": nd.state.anc_mode == mode,
-                        # Late binding is a real hazard in a loop; bind by default arg.
-                        "action": (lambda d=nd, m=mode: d.set_anc_mode(m)),
-                    }
-                )
-                # Strength, nested under ANC only -- Off and Transparency have
-                # no level, and showing one there would suggest otherwise.
-                if mode == ANCMode.NOISE_CANCELLATION:
-                    prof0 = getattr(nd, "model_profile", None)
-                    levels = (prof0.anc_levels if prof0 and prof0.anc_levels else ANCLevel.ALL)
-                    for lvl in levels:
-                        if lvl not in ANCLevel.LABELS:
-                            continue
-                        items.append(
-                            {
-                                "label": f"      {ANCLevel.LABELS[lvl]}",
-                                "toggle": "radio",
-                                "checked": nd.state.anc_level == lvl,
-                                "action": (lambda d=nd, v=lvl: d.set_anc_level(v)),
-                            }
-                        )
-
-            # Equaliser presets. These are the ONLY four the protocol exposes
-            # (single-byte payload on 0xF010); the Nothing X per-band equaliser
-            # uses a different, undocumented command and is not available here.
-            items.append({"label": "   Equaliser", "enabled": False})
-            for preset in EQ_PRESETS:
-                items.append(
-                    {
-                        "label": f"      {preset}",
-                        "toggle": "radio",
-                        "checked": nd.state.eq_preset == preset,
-                        "action": (lambda d=nd, p=preset: d.set_eq_preset(p)),
-                    }
-                )
-            # Declared settings, only those this model actually answered to.
-            # A device that implements none of them adds nothing here.
-            prof = getattr(nd, "model_profile", None)
-            for feat in features.FEATURES:
-                if feat.key not in nd.features or feat.write_cmd is None:
-                    continue
-                cur = nd.features[feat.key]
-                label = prof.feature_label(feat.key, feat.label) if prof else feat.label
-                if feat.kind == "choice":
-                    # A profile narrows the value list to the ones that are real
-                    # on this model -- the firmware ACKs the others and does
-                    # nothing, which would look like a broken control.
-                    choices = prof.feature_choices(feat.key, feat.choices) if prof else feat.choices
-                    items.append({"label": f"   {label}", "enabled": False})
-                    for val, name in choices.items():
-                        items.append(
-                            {
-                                "label": f"      {name}",
-                                "toggle": "radio",
-                                "checked": cur == val,
-                                "action": (lambda d=nd, k=feat.key, v=val: d.set_feature(k, v)),
-                            }
-                        )
-                elif feat.kind == "toggle":
-                    # ⚠️ PRESERVE THE SECOND BYTE ON PAIR-ENCODED SETTINGS. Bass
-                    # boost reads back as [enabled, level] -- [0x00, 0x06] on a
-                    # stock Ear (3a). Sending a bare 1 encodes to [0x01, 0x00],
-                    # which switches it on AND resets the level to zero: the
-                    # control lights up and nothing is audible, which reads as a
-                    # dead command rather than as the bug it is.
-                    is_pair = isinstance(cur, tuple)
-                    on = cur[0] if is_pair else cur
-                    nxt = (0 if on else 1, cur[1]) if is_pair else (0 if on else 1)
-                    items.append(
-                        {
-                            "label": f"   {label}",
-                            "toggle": "checkmark",
-                            "checked": bool(on),
-                            "action": (lambda d=nd, k=feat.key, v=nxt: d.set_feature(k, v)),
-                        }
-                    )
-
-            items.append({"separator": True})
-
-        if not items:
+        items = []
+        if not connected:
             items.append({"label": "No device connected", "enabled": False})
-            items.append({"separator": True})
+        elif len(connected) == 1:
+            bt_dev, nd = connected[0]
+            items.append({"label": self._title(bt_dev), "enabled": False})
+            items.extend(self._device_groups(nd))
+        else:
+            for bt_dev, nd in connected:
+                items.append(
+                    {"label": self._title(bt_dev), "children": self._device_groups(nd)}
+                )
 
+        items.append({"separator": True})
         items.append({"label": "Open Nadamas", "action": self._on_show})
         if self._on_quit:
             items.append({"label": "Quit", "action": self._on_quit})
         return items
+
+    @staticmethod
+    def _title(bt_dev) -> str:
+        if bt_dev.battery is not None:
+            return f"{bt_dev.name} — {bt_dev.battery}%"
+        return bt_dev.name
+
+    def _device_groups(self, nd) -> list:
+        """One submenu per family of settings, for a single device."""
+        prof = getattr(nd, "model_profile", None)
+        groups = []
+
+        # Noise control: the three modes, and the strengths under ANC itself.
+        supported = getattr(nd.state, "supported_anc_modes", None)
+        modes = []
+        for mode in (ANCMode.OFF, ANCMode.NOISE_CANCELLATION, ANCMode.TRANSPARENCY):
+            if supported is not None and mode not in supported:
+                continue
+            entry = {
+                "label": ANCMode.LABELS[mode],
+                "toggle": "radio",
+                "checked": nd.state.anc_mode == mode,
+                # Late binding is a real hazard in a loop; bind by default arg.
+                "action": (lambda d=nd, m=mode: d.set_anc_mode(m)),
+            }
+            if mode == ANCMode.NOISE_CANCELLATION:
+                levels = prof.anc_levels if prof and prof.anc_levels else ANCLevel.ALL
+                entry["children"] = [
+                    {
+                        "label": ANCLevel.LABELS[lvl],
+                        "toggle": "radio",
+                        "checked": nd.state.anc_level == lvl,
+                        "action": (lambda d=nd, v=lvl: d.set_anc_level(v)),
+                    }
+                    for lvl in levels
+                    if lvl in ANCLevel.LABELS
+                ]
+            modes.append(entry)
+        if modes:
+            groups.append({"label": "Noise control", "children": modes})
+
+        groups.append(
+            {
+                "label": "Equaliser",
+                "children": [
+                    {
+                        "label": preset,
+                        "toggle": "radio",
+                        "checked": nd.state.eq_preset == preset,
+                        "action": (lambda d=nd, p=preset: d.set_eq_preset(p)),
+                    }
+                    for preset in EQ_PRESETS
+                ],
+            }
+        )
+
+        # Declared settings, only those this model actually answered to.
+        for feat in features.FEATURES:
+            if feat.key not in nd.features or feat.write_cmd is None:
+                continue
+            cur = nd.features[feat.key]
+            label = prof.feature_label(feat.key, feat.label) if prof else feat.label
+            if feat.kind == "choice":
+                choices = prof.feature_choices(feat.key, feat.choices) if prof else feat.choices
+                groups.append(
+                    {
+                        "label": label,
+                        "children": [
+                            {
+                                "label": name,
+                                "toggle": "radio",
+                                "checked": cur == val,
+                                "action": (
+                                    lambda d=nd, k=feat.key, v=val: d.set_feature(k, v)
+                                ),
+                            }
+                            for val, name in choices.items()
+                        ],
+                    }
+                )
+            elif feat.kind == "toggle":
+                # Preserve the second byte on pair-encoded settings: bass boost
+                # reads back as [enabled, level], and sending a bare 1 would
+                # switch it on while resetting the level to zero.
+                is_pair = isinstance(cur, tuple)
+                on = cur[0] if is_pair else cur
+                nxt = (0 if on else 1, cur[1]) if is_pair else (0 if on else 1)
+                groups.append(
+                    {
+                        "label": label,
+                        "toggle": "checkmark",
+                        "checked": bool(on),
+                        "action": (lambda d=nd, k=feat.key, v=nxt: d.set_feature(k, v)),
+                    }
+                )
+        return groups
 
     def _setup(self):
         try:
