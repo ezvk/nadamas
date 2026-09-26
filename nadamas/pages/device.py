@@ -10,7 +10,7 @@ from gi.repository import GLib, Gtk, PangoCairo
 
 from ..bluetooth import BluetoothDevice, BluetoothManager
 from ..protocol import NothingDevice, ANCMode, EQ_PRESETS, CUSTOM_EQ_BANDS, CUSTOM_EQ_RANGE
-from .. import profiles
+from .. import features, profiles
 
 
 def _mono_font() -> str:
@@ -292,6 +292,10 @@ class DevicePage(Gtk.Box):
         self._custom_eq_scales: dict[str, Gtk.Scale] = {}
         self._custom_eq_labels: dict[str, Gtk.Label] = {}
         self._custom_eq_handlers: dict[str, int] = {}
+        # Probed settings (codec, dual connection...): until 2026-09-26 only the
+        # tray menu offered them. Rebuilt when the set of answered keys changes.
+        self._feature_keys_shown: tuple | None = None
+        self._feature_widgets: dict[str, tuple] = {}
         self._updating_ui = False
         self._bt_conn_handler = bt_manager.connect("device-connected", self._on_bt_device_connected)
         self._bt_disc_handler = bt_manager.connect("device-disconnected", self._on_bt_device_disconnected)
@@ -411,6 +415,13 @@ class DevicePage(Gtk.Box):
             self._custom_eq_handlers[band_name] = handler
         self._custom_eq_box.set_visible(False)
         page.append(self._custom_eq_box)
+
+        self._features_title = _section("DEVICE SETTINGS")
+        self._features_title.set_visible(False)
+        page.append(self._features_title)
+        self._features_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self._features_box.set_margin_bottom(4)
+        page.append(self._features_box)
 
         page.append(_section("SETTINGS"))
 
@@ -606,6 +617,7 @@ class DevicePage(Gtk.Box):
         self._custom_eq_box.set_visible(show_custom)
         if show_custom and self._custom_eq_debounce_id is None:
             self._apply_custom_eq_display(state.custom_eq)
+        self._sync_features(dev)
         self._updating_ui = True
         self._updating_ui = False
         if hasattr(self, "_fw_label"):
@@ -737,6 +749,86 @@ class DevicePage(Gtk.Box):
         self._sync_anc_ui(mode)
         if self._nothing_dev:
             self._nothing_dev.set_anc_mode(mode)
+
+    # ── réglages sondés ───────────────────────────────────────────────────────
+
+    def _writable_features(self, dev):
+        """Same rule as the tray: only settings THIS model answered, and writable."""
+        return [f for f in features.FEATURES if f.key in dev.features and f.write_cmd is not None]
+
+    def _sync_features(self, dev):
+        feats = self._writable_features(dev)
+        keys = tuple(f.key for f in feats)
+        if keys != self._feature_keys_shown:
+            self._build_features(dev, feats)
+        self._updating_ui = True
+        try:
+            for f in feats:
+                kind, widget, values = self._feature_widgets[f.key]
+                cur = dev.features.get(f.key)
+                if kind == "choice":
+                    if cur in values:
+                        widget.set_selected(values.index(cur))
+                else:
+                    on = cur[0] if isinstance(cur, tuple) else cur
+                    widget.set_active(bool(on))
+        finally:
+            self._updating_ui = False
+
+    def _build_features(self, dev, feats):
+        child = self._features_box.get_first_child()
+        while child is not None:
+            nxt = child.get_next_sibling()
+            self._features_box.remove(child)
+            child = nxt
+        self._feature_widgets = {}
+        prof = dev.model_profile
+        for f in feats:
+            label = prof.feature_label(f.key, f.label) if prof else f.label
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            lbl = Gtk.Label(label=label)
+            lbl.set_xalign(0)
+            lbl.set_hexpand(True)
+            row.append(lbl)
+            if f.kind == "choice":
+                # A profile narrows the list to the values real on this model.
+                choices = prof.feature_choices(f.key, f.choices) if prof else f.choices
+                values = list(choices)
+                drop = Gtk.DropDown.new_from_strings([choices[v] for v in values])
+                drop.connect("notify::selected", self._on_feature_choice, f.key, values)
+                row.append(drop)
+                self._feature_widgets[f.key] = ("choice", drop, values)
+            else:
+                sw = Gtk.Switch()
+                sw.set_valign(Gtk.Align.CENTER)
+                sw.connect("notify::active", self._on_feature_toggle, f.key)
+                row.append(sw)
+                self._feature_widgets[f.key] = ("toggle", sw, None)
+            self._features_box.append(row)
+            if f.note:
+                note = Gtk.Label(label=f.note)
+                note.set_xalign(0)
+                note.set_wrap(True)
+                note.add_css_class("dim-label")
+                self._features_box.append(note)
+        self._features_title.set_visible(bool(feats))
+        self._feature_keys_shown = tuple(f.key for f in feats)
+
+    def _on_feature_choice(self, drop, _pspec, key, values):
+        if self._updating_ui or not self._nothing_dev:
+            return
+        idx = drop.get_selected()
+        if 0 <= idx < len(values):
+            self._nothing_dev.set_feature(key, values[idx])
+
+    def _on_feature_toggle(self, sw, _pspec, key):
+        if self._updating_ui or not self._nothing_dev:
+            return
+        cur = self._nothing_dev.features.get(key)
+        on = 1 if sw.get_active() else 0
+        # ⚠️ Pair-encoded settings (bass boost = [enabled, level]) keep their
+        # second byte, exactly as in the tray: [1, 0] would zero the level.
+        self._nothing_dev.set_feature(key, (on, cur[1]) if isinstance(cur, tuple) else on)
 
     def _populate_eq_buttons(self, presets: list[str]):
         for _preset, btn in self._eq_buttons:

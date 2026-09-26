@@ -6,7 +6,7 @@ from gi.repository import GLib, GObject
 
 from .bluetooth import BluetoothManager, device_icon_name
 from . import features
-from .protocol import ANCLevel, ANCMode, EQ_PRESETS
+from .protocol import ANCLevel, ANCMode
 from .traymenu import DBusMenu, MENU_PATH
 from . import trayicon
 
@@ -186,7 +186,7 @@ class NadamasTray(GObject.Object):
                 # no level, and showing one there would suggest otherwise.
                 if mode == ANCMode.NOISE_CANCELLATION:
                     prof0 = getattr(nd, "model_profile", None)
-                    levels = (prof0.anc_levels if prof0 and prof0.anc_levels else ANCLevel.ALL)
+                    levels = prof0.anc_levels if prof0 and prof0.anc_levels else ANCLevel.ALL
                     for lvl in levels:
                         if lvl not in ANCLevel.LABELS:
                             continue
@@ -199,11 +199,10 @@ class NadamasTray(GObject.Object):
                             }
                         )
 
-            # Equaliser presets. These are the ONLY four the protocol exposes
-            # (single-byte payload on 0xF010); the Nothing X per-band equaliser
-            # uses a different, undocumented command and is not available here.
+            # Equaliser presets of THIS model: the four Ear presets (0xF010), or
+            # the CMF Buds Pro 2 listening modes (0xF01D) its profile declares.
             items.append({"label": "   Equaliser", "enabled": False})
-            for preset in EQ_PRESETS:
+            for preset in nd.eq_preset_map():
                 items.append(
                     {
                         "label": f"      {preset}",
