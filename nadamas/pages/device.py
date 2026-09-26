@@ -6,11 +6,12 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Pango", "1.0")
 gi.require_version("PangoCairo", "1.0")
-from gi.repository import Gtk, PangoCairo
+from gi.repository import GLib, Gtk, PangoCairo
 
 from ..bluetooth import BluetoothDevice, BluetoothManager
-from ..protocol import NothingDevice, ANCMode, EQ_PRESETS
+from ..protocol import NothingDevice, ANCMode, EQ_PRESETS, CUSTOM_EQ_BANDS, CUSTOM_EQ_RANGE
 from .. import profiles
+
 
 def _mono_font() -> str:
     available = {f.get_name() for f in PangoCairo.FontMap.get_default().list_families()}
@@ -19,7 +20,9 @@ def _mono_font() -> str:
             return name
     return "monospace"
 
+
 _MONO = _mono_font()
+
 
 def _battery_color(pct: int) -> tuple[float, float, float]:
     if pct < 0:
@@ -29,6 +32,7 @@ def _battery_color(pct: int) -> tuple[float, float, float]:
     if pct <= 50:
         return (0.94, 0.75, 0.25)
     return (0.56, 0.87, 0.45)
+
 
 class EarbudVisual(Gtk.DrawingArea):
     def __init__(self):
@@ -237,11 +241,13 @@ class EarbudVisual(Gtk.DrawingArea):
         cr.move_to(cx - te.width / 2 - te.x_bearing, cy + R + 14)
         cr.show_text("CASE")
 
+
 def _section(label: str) -> Gtk.Label:
     lbl = Gtk.Label(label=label)
     lbl.add_css_class("section-label")
     lbl.set_xalign(0)
     return lbl
+
 
 def _settings_row(title: str, subtitle: str = "", right_widget: Gtk.Widget | None = None) -> Gtk.Box:
     row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
@@ -266,6 +272,7 @@ def _settings_row(title: str, subtitle: str = "", right_widget: Gtk.Widget | Non
         row.append(right_widget)
     return row
 
+
 class DevicePage(Gtk.Box):
     def __init__(
         self,
@@ -280,6 +287,11 @@ class DevicePage(Gtk.Box):
         self._nd_handlers: list[int] = []
         self._anc_buttons: list[tuple[int, Gtk.Button]] = []
         self._eq_buttons: list[tuple[str, Gtk.Button]] = []
+        self._eq_presets_shown: list[str] | None = None
+        self._custom_eq_debounce_id: int | None = None
+        self._custom_eq_scales: dict[str, Gtk.Scale] = {}
+        self._custom_eq_labels: dict[str, Gtk.Label] = {}
+        self._custom_eq_handlers: dict[str, int] = {}
         self._updating_ui = False
         self._bt_conn_handler = bt_manager.connect("device-connected", self._on_bt_device_connected)
         self._bt_disc_handler = bt_manager.connect("device-disconnected", self._on_bt_device_disconnected)
@@ -364,14 +376,41 @@ class DevicePage(Gtk.Box):
         eq_flow.set_max_children_per_line(4)
         eq_flow.set_margin_bottom(4)
 
-        for preset in EQ_PRESETS:
-            btn = Gtk.Button(label=preset)
-            btn.add_css_class("eq-button")
-            btn.connect("clicked", self._on_eq_clicked, preset)
-            eq_flow.append(btn)
-            self._eq_buttons.append((preset, btn))
+        # Nothing Ear presets until the model is known; the CMF Buds Pro 2
+        # replace them with their listening modes (profile "eq", upstream #47).
+        self._eq_flow = eq_flow
+        self._populate_eq_buttons(list(EQ_PRESETS))
 
         page.append(eq_flow)
+
+        # The 3-band curve behind the "Custom" listening mode. Shown only while
+        # Custom is selected on a model that has it.
+        self._custom_eq_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self._custom_eq_box.set_margin_bottom(4)
+        self._custom_eq_box.append(_section("CUSTOM CURVE"))
+        for band_name, freq in CUSTOM_EQ_BANDS:
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            name_lbl = Gtk.Label(label=f"{band_name} · {freq} Hz")
+            name_lbl.set_xalign(0)
+            name_lbl.set_width_chars(15)
+            scale = Gtk.Scale.new_with_range(
+                Gtk.Orientation.HORIZONTAL, CUSTOM_EQ_RANGE[0], CUSTOM_EQ_RANGE[1], 1
+            )
+            scale.set_hexpand(True)
+            scale.set_draw_value(False)
+            val_lbl = Gtk.Label(label="0")
+            val_lbl.set_width_chars(3)
+            val_lbl.set_xalign(1)
+            handler = scale.connect("value-changed", self._on_custom_eq_changed)
+            row.append(name_lbl)
+            row.append(scale)
+            row.append(val_lbl)
+            self._custom_eq_box.append(row)
+            self._custom_eq_scales[band_name] = scale
+            self._custom_eq_labels[band_name] = val_lbl
+            self._custom_eq_handlers[band_name] = handler
+        self._custom_eq_box.set_visible(False)
+        page.append(self._custom_eq_box)
 
         page.append(_section("SETTINGS"))
 
@@ -555,13 +594,23 @@ class DevicePage(Gtk.Box):
             state.right_wearing,
         )
         self._sync_anc_ui(state.anc_mode)
+        presets = list(dev.eq_preset_map())
+        if presets != self._eq_presets_shown:
+            self._populate_eq_buttons(presets)
         self._sync_eq_ui(state.eq_preset)
+        show_custom = (
+            dev.uses_listening_mode
+            and state.eq_preset == "Custom"
+            and bool(dev.model_profile and dev.model_profile.eq.get("custom_curve"))
+        )
+        self._custom_eq_box.set_visible(show_custom)
+        if show_custom and self._custom_eq_debounce_id is None:
+            self._apply_custom_eq_display(state.custom_eq)
         self._updating_ui = True
         self._updating_ui = False
         if hasattr(self, "_fw_label"):
             self._fw_label.set_label(state.firmware_version or "—")
             self._sn_label.set_label(state.serial_number or "—")
-
 
     def _on_rfcomm_connected(self, _dev):
         # Talon : ne servait qu'a interroger le volume, retire avec le curseur.
@@ -688,6 +737,40 @@ class DevicePage(Gtk.Box):
         self._sync_anc_ui(mode)
         if self._nothing_dev:
             self._nothing_dev.set_anc_mode(mode)
+
+    def _populate_eq_buttons(self, presets: list[str]):
+        for _preset, btn in self._eq_buttons:
+            self._eq_flow.remove(btn)
+        self._eq_buttons = []
+        for preset in presets:
+            btn = Gtk.Button(label=preset)
+            btn.add_css_class("eq-button")
+            btn.connect("clicked", self._on_eq_clicked, preset)
+            self._eq_flow.append(btn)
+            self._eq_buttons.append((preset, btn))
+        self._eq_presets_shown = list(presets)
+
+    def _on_custom_eq_changed(self, _scale):
+        for band_name, scale in self._custom_eq_scales.items():
+            self._custom_eq_labels[band_name].set_label(f"{int(scale.get_value()):+d}")
+        if self._custom_eq_debounce_id is not None:
+            GLib.source_remove(self._custom_eq_debounce_id)
+        self._custom_eq_debounce_id = GLib.timeout_add(250, self._do_set_custom_eq)
+
+    def _do_set_custom_eq(self):
+        self._custom_eq_debounce_id = None
+        if self._nothing_dev:
+            v = {n: int(s.get_value()) for n, s in self._custom_eq_scales.items()}
+            self._nothing_dev.set_custom_eq(v["Bass"], v["Mid"], v["Treble"])
+        return False
+
+    def _apply_custom_eq_display(self, values):
+        for (band_name, _freq), value in zip(CUSTOM_EQ_BANDS, values, strict=True):
+            scale = self._custom_eq_scales[band_name]
+            scale.handler_block(self._custom_eq_handlers[band_name])
+            scale.set_value(value)
+            scale.handler_unblock(self._custom_eq_handlers[band_name])
+            self._custom_eq_labels[band_name].set_label(f"{int(value):+d}")
 
     def _on_eq_clicked(self, _btn, preset: str):
         self._sync_eq_ui(preset)

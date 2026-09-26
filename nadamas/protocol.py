@@ -50,6 +50,12 @@ _CMD_MODEL = 0xC01C  # device model code; keys the per-model JSON profiles (mode
 _CMD_SET_ACTIVATED = 0xF001  # activation response; no payload
 _CMD_SET_NOISE_RED = 0xF00F  # payload: [0x01, anc_val, 0x00]
 _CMD_SET_EQ = 0xF010  # payload: [eq_val]
+# CMF « listening modes » (B172 CMF Buds Pro 2, B168 CMF Buds) -- upstream fec9aa2 (#47).
+# Declared per model in its JSON profile ("eq": {"kind": "listening_mode"}).
+_CMD_LISTENING_MODE = 0xC050  # GET the listening-mode preset
+_CMD_SET_LISTENING_MODE = 0xF01D  # SET; payload: [level, 0x00]
+_CMD_CUSTOM_EQ = 0xC044  # GET the 3-band parametric curve behind "Custom"
+_CMD_SET_CUSTOM_EQ = 0xF041  # SET that curve
 
 
 def _crc16(data: bytes) -> int:
@@ -143,6 +149,34 @@ EQ_PRESETS = {
 }
 EQ_PRESET_NAMES = {v: k for k, v in EQ_PRESETS.items()}
 
+# The "Custom" listening mode plays a 3-band parametric curve stored on the
+# device. Only the three gains are editable; frequencies and Q are fixed by the
+# firmware and echoed back untouched (upstream fec9aa2).
+CUSTOM_EQ_BANDS = (("Bass", 140), ("Mid", 980), ("Treble", 3500))
+CUSTOM_EQ_RANGE = (-6, 6)
+# Wire layout: [count][preamp f32][id][gain f32][freq f32][q f32] * 3 + padding.
+# Gains at payload offsets 6, 19, 32, in DEVICE band order: mid, treble, bass.
+_CUSTOM_EQ_TEMPLATE = bytes.fromhex(
+    "0300000000010000000000007544c3f5283f020000000000c05a450000803f"
+    "000000000000000c43cdcc4c3f000000000000000000"
+)
+_CUSTOM_EQ_GAIN_OFFSETS = (6, 19, 32)  # mid, treble, bass
+
+
+def _eq_float(value: float, preamp: bool = False) -> bytes:
+    """Gain as the firmware expects it: float32, byte-reversed, with the two
+    sign quirks of the official app (upstream fec9aa2)."""
+    if preamp and value >= 0:
+        return bytes([0x00, 0x00, 0x00, 0x80])  # -0.0
+    be = bytearray(struct.pack(">f", value))
+    if value != 0.0 and be[0] == 0 and be[1] == 0 and be[2] == 0:
+        be[3] = (be[3] | 0x80) & 0xFF
+    return bytes(reversed(be))
+
+
+def _eq_float_decode(raw: bytes) -> float:
+    return struct.unpack(">f", bytes(reversed(raw)))[0]
+
 
 @dataclass
 class DeviceState:
@@ -158,6 +192,8 @@ class DeviceState:
     auto_pause: bool = True
     firmware_version: str = "—"
     serial_number: str = "—"
+    # Custom listening-mode gains in dB, as (bass, mid, treble).
+    custom_eq: tuple = (0, 0, 0)
     left_wearing: bool = False
     right_wearing: bool = False
     # None = not yet determined (show all); frozenset = confirmed supported modes
@@ -181,6 +217,9 @@ class NothingDevice(GObject.Object):
         self.name = name
         # Per-model JSON profile, resolved once the model code arrives.
         self.model_profile = None
+        # Saved EQ preset waiting for the model: the command to use depends on
+        # it, and 0xC01C answers AFTER activation, where _restore_profile runs.
+        self._pending_eq_restore: str | None = None
         self.state = DeviceState()
         # Declared settings the device actually answered to; see features.py.
         self.features: dict[str, object] = {}
@@ -209,11 +248,9 @@ class NothingDevice(GObject.Object):
             # only AVRCP ch3 on some devices). Discovered channels keep
             # priority; dict.fromkeys dedupes while preserving order.
             channels = list(dict.fromkeys(list(self._discover_channels()) + _PROBE_CHANNELS))
-            for ch in channels:
-                result = self._try_channel(ch)
-                if result is None:
-                    continue
-                sock, initial = result
+            selected = self._select_channel(channels)
+            if selected is not None:
+                sock, initial, ch = selected
                 self._sock = sock
                 self._rfcomm_connected = True
                 _log(f"[protocol] using ch{ch}")
@@ -292,13 +329,52 @@ class NothingDevice(GObject.Object):
                 GLib.source_remove(self._anc_debounce_id)
             self._anc_debounce_id = GLib.timeout_add(300, self._do_set_anc)
 
+    @property
+    def uses_listening_mode(self) -> bool:
+        """True when the model profile declares CMF listening modes."""
+        return bool(self.model_profile and self.model_profile.uses_listening_mode)
+
+    def eq_preset_map(self) -> dict:
+        return self.model_profile.eq_presets(EQ_PRESETS) if self.model_profile else EQ_PRESETS
+
+    def _send_eq_preset(self, preset: str, prefix: str = ""):
+        if self.uses_listening_mode:
+            modes = self.eq_preset_map()
+            if preset not in modes:
+                # Saved against another model: leave the device as it is.
+                _log(f"[protocol] ignoring stale preset {preset!r} for {self.model_profile.id}")
+                return
+            self._x55_send(
+                _CMD_SET_LISTENING_MODE,
+                bytes([modes[preset], 0x00]),
+                label=f"{prefix}listening mode={preset}",
+            )
+        else:
+            self._x55_send(_CMD_SET_EQ, bytes([EQ_PRESETS.get(preset, 0)]), label=f"{prefix}EQ={preset}")
+
+    def set_custom_eq(self, bass: int, mid: int, treble: int):
+        """Write the 3-band curve used by the Custom listening mode."""
+        lo, hi = CUSTOM_EQ_RANGE
+        bass, mid, treble = (max(lo, min(hi, int(v))) for v in (bass, mid, treble))
+        self.state.custom_eq = (bass, mid, treble)
+        GLib.idle_add(self.emit, "state-changed")
+        if not self._activated:
+            return
+        gains = (mid, treble, bass)  # device band order
+        buf = bytearray(_CUSTOM_EQ_TEMPLATE)
+        buf[1:5] = _eq_float(-max(gains), preamp=True)
+        for offset, gain in zip(_CUSTOM_EQ_GAIN_OFFSETS, gains, strict=True):
+            buf[offset : offset + 4] = _eq_float(float(gain))
+        self._x55_send(
+            _CMD_SET_CUSTOM_EQ, bytes(buf), label=f"custom EQ bass={bass:+d} mid={mid:+d} treble={treble:+d}"
+        )
+
     def set_eq_preset(self, preset: str):
         self.state.eq_preset = preset
         GLib.idle_add(self.emit, "state-changed")
         if not self._activated:
             return
-        eq_val = EQ_PRESETS.get(preset, 0)
-        self._x55_send(_CMD_SET_EQ, bytes([eq_val]), label=f"EQ={preset}")
+        self._send_eq_preset(preset)
         from . import profiles
 
         profiles.save(self.address, self.state.anc_mode, preset)
@@ -373,6 +449,33 @@ class NothingDevice(GObject.Object):
 
         _log(f"[protocol] probing channels {_PROBE_CHANNELS}")
         return _PROBE_CHANNELS
+
+    def _select_channel(self, channels: list[int]) -> tuple[socket.socket, bytes, int] | None:
+        """Pick a channel, preferring one that actually speaks 0x55.
+
+        A leading 0x03 is not proof the channel is ours: on the CMF Buds Pro 2
+        (B172) unrelated vendor services answer with the same byte as the legacy
+        header. Taking one leaves the session "connected" but mute -- activation
+        never completes and every later SET is dropped. The first legacy
+        responder is kept as a fallback, used only if no channel answers 0x55.
+        (upstream fec9aa2, #47)
+        """
+        fallback: tuple[socket.socket, bytes, int] | None = None
+        for ch in channels:
+            result = self._try_channel(ch)
+            if result is None:
+                continue
+            sock, initial = result
+            if initial[:1] == bytes([_SOF]):
+                if fallback is not None:
+                    fallback[0].close()
+                return sock, initial, ch
+            if fallback is None:
+                _log(f"[protocol] ch{ch}: legacy header -- kept as fallback, still probing for 0x55")
+                fallback = (sock, initial, ch)
+            else:
+                sock.close()
+        return fallback
 
     def _try_channel(self, ch: int) -> tuple[socket.socket, bytes] | None:
         for attempt in range(2):
@@ -580,8 +683,36 @@ class NothingDevice(GObject.Object):
                 self.model_profile = prof
                 _log(f"[protocol] model {payload.hex()} → profile {prof.id!r} ({prof.name})")
                 changed = True
+                if prof.uses_listening_mode:
+                    self._x55_send(_CMD_LISTENING_MODE)
+                    self._x55_send(_CMD_CUSTOM_EQ)
             elif prof is None:
                 _log(f"[protocol] model {payload.hex()} has no profile; using generic labels")
+            # The model is known either way now: replay the preset held back.
+            pending, self._pending_eq_restore = self._pending_eq_restore, None
+            if pending:
+                self._send_eq_preset(pending, prefix="restore ")
+        elif cmd_id == _CMD_LISTENING_MODE:
+            # ⚠️ The Buds Pro 2 answer EVERY query, unsupported ones with an
+            # EMPTY payload (cpb2.json notes): empty is "no value", never 0.
+            if payload:
+                name = {v: k for k, v in self.eq_preset_map().items()}.get(payload[0])
+                if name and name != self.state.eq_preset:
+                    self.state.eq_preset = name
+                    _log(f"[protocol] listening mode -> {name} (wire val {payload[0]})")
+                    changed = True
+        elif cmd_id == _CMD_SET_LISTENING_MODE:
+            _log(f"[RX INFO] listening mode set ACK: {payload.hex()}")
+        elif cmd_id == _CMD_CUSTOM_EQ:
+            if len(payload) >= 36:
+                mid, treble, bass = (_eq_float_decode(payload[o : o + 4]) for o in _CUSTOM_EQ_GAIN_OFFSETS)
+                vals = (round(bass), round(mid), round(treble))
+                if vals != self.state.custom_eq:
+                    self.state.custom_eq = vals
+                    _log(f"[protocol] custom EQ: bass={vals[0]:+d} mid={vals[1]:+d} treble={vals[2]:+d}")
+                    changed = True
+        elif cmd_id == _CMD_SET_CUSTOM_EQ:
+            _log(f"[RX INFO] custom EQ set ACK: {payload.hex()}")
         elif self._parse_feature(cmd_id, payload):
             changed = True
         else:
@@ -832,8 +963,12 @@ class NothingDevice(GObject.Object):
                 _CMD_SET_NOISE_RED, bytes([0x01, wire, 0x00]), label=f"restore ANC={ANCMode.LABELS.get(anc)}"
             )
         if "eq" in p:
-            eq_val = EQ_PRESETS.get(p["eq"], 0)
-            self._x55_send(_CMD_SET_EQ, bytes([eq_val]), label=f"restore EQ={p['eq']}")
+            if self.model_profile is None:
+                # 0xC01C has not answered yet: sending now would use the Ear
+                # command on a Buds Pro 2. Replayed from the 0xC01C handler.
+                self._pending_eq_restore = p["eq"]
+            else:
+                self._send_eq_preset(p["eq"], prefix="restore ")
 
     def _check_low_battery(self, slot: str, pct: int, label: str):
         if pct < 0:

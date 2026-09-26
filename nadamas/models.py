@@ -60,6 +60,10 @@ class DeviceProfile:
     name_patterns: tuple = ()
     features: dict = field(default_factory=dict)
     anc_levels: tuple | None = None
+    # How this model is told its sound preset. Absent = the Nothing Ear presets
+    # (0xF010). {"kind": "listening_mode", "presets": {...}} = the CMF commands
+    # 0xF01D / 0xC050, with a different value set (upstream fec9aa2, #47).
+    eq: dict = field(default_factory=dict)
     notes: str = ""
     source: str = ""
 
@@ -82,6 +86,14 @@ class DeviceProfile:
     def declares(self, key: str) -> bool:
         return key in self.features
 
+    @property
+    def uses_listening_mode(self) -> bool:
+        return self.eq.get("kind") == "listening_mode"
+
+    def eq_presets(self, default: dict) -> dict:
+        raw = self.eq.get("presets")
+        return {str(k): int(v) for k, v in raw.items()} if raw else default
+
 
 def _load_file(path: str) -> DeviceProfile | None:
     try:
@@ -101,6 +113,7 @@ def _load_file(path: str) -> DeviceProfile | None:
         name_patterns=pats,
         features=data.get("features") or {},
         anc_levels=tuple(data.get("anc_levels")) if data.get("anc_levels") else None,
+        eq=data.get("eq") or {},
         notes=str(data.get("notes") or ""),
         source=path,
     )

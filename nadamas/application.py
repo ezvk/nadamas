@@ -246,9 +246,21 @@ def _run_cli(argv: list[str]) -> int:
         if "--eq" in argv:
             idx = argv.index("--eq")
             val = argv[idx + 1] if idx + 1 < len(argv) else ""
-            preset = _EQ_ALIASES.get(val.lower())
+            # Aliases of the Ear presets, or any preset name of THIS model
+            # (listening modes on the CMF Buds Pro 2: rock, pop, custom...).
+            names = {n.lower(): n for n in dev.eq_preset_map()}
+            preset = (
+                names.get(val.lower())
+                or names.get(val.lower().replace("-", " "))
+                or _EQ_ALIASES.get(val.lower())
+            )
+            if preset is not None and preset not in dev.eq_preset_map():
+                preset = None
             if preset is None:
-                print(f"Unknown EQ preset '{val}'. Use: balanced, bass, treble, voice", file=sys.stderr)
+                print(
+                    f"Unknown EQ preset '{val}'. Use: {', '.join(n.lower() for n in dev.eq_preset_map())}",
+                    file=sys.stderr,
+                )
                 exit_code[0] = 1
             else:
                 dev.set_eq_preset(preset)
@@ -284,7 +296,8 @@ def _print_help():
         "  nadamas                             launch GUI\n"
         "  nadamas --battery                   print battery levels\n"
         "  nadamas --anc off|on|transparency   set ANC mode\n"
-        "  nadamas --eq balanced|bass|treble|voice  set EQ preset\n"
+        "  nadamas --eq <preset>                    set EQ preset (balanced|bass|treble|voice;\n"
+        "                                           listening modes on CMF Buds Pro 2)\n"
         "  nadamas --device AA:BB:CC:DD:EE:FF  target specific device\n"
         "  nadamas --version                   print version and exit\n"
     )
