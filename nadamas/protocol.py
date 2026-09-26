@@ -50,6 +50,11 @@ _CMD_MODEL = 0xC01C  # device model code; keys the per-model JSON profiles (mode
 _CMD_SET_ACTIVATED = 0xF001  # activation response; no payload
 _CMD_SET_NOISE_RED = 0xF00F  # payload: [0x01, anc_val, 0x00]
 _CMD_SET_EQ = 0xF010  # payload: [eq_val]
+# Ring an earbud ("whereAmI", chukfinley/nada): [side, 1=ring/0=stop], side as in
+# the battery ids -- 0x02 left, 0x03 right.
+_CMD_SET_FIND_DEVICE = 0xF002
+FIND_LEFT = 0x02
+FIND_RIGHT = 0x03
 # CMF « listening modes » (B172 CMF Buds Pro 2, B168 CMF Buds) -- upstream fec9aa2 (#47).
 # Declared per model in its JSON profile ("eq": {"kind": "listening_mode"}).
 _CMD_LISTENING_MODE = 0xC050  # GET the listening-mode preset
@@ -367,6 +372,19 @@ class NothingDevice(GObject.Object):
             buf[offset : offset + 4] = _eq_float(float(gain))
         self._x55_send(
             _CMD_SET_CUSTOM_EQ, bytes(buf), label=f"custom EQ bass={bass:+d} mid={mid:+d} treble={treble:+d}"
+        )
+
+    def ring(self, side: int, on: bool = True):
+        """Make one earbud play its locating tone (or stop it).
+
+        ⚠️ LOUD, and played INSIDE the ear: the UI warns to take the bud out.
+        The ACK proves nothing (see set_feature); only hearing it does.
+        """
+        if side not in (FIND_LEFT, FIND_RIGHT) or not self._activated:
+            return
+        label = {FIND_LEFT: "left", FIND_RIGHT: "right"}[side]
+        self._x55_send(
+            _CMD_SET_FIND_DEVICE, bytes([side, 1 if on else 0]), label=f"find {label} {'on' if on else 'off'}"
         )
 
     def set_eq_preset(self, preset: str):

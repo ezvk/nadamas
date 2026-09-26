@@ -9,7 +9,15 @@ gi.require_version("PangoCairo", "1.0")
 from gi.repository import GLib, Gtk, PangoCairo
 
 from ..bluetooth import BluetoothDevice, BluetoothManager
-from ..protocol import NothingDevice, ANCMode, EQ_PRESETS, CUSTOM_EQ_BANDS, CUSTOM_EQ_RANGE
+from ..protocol import (
+    NothingDevice,
+    ANCMode,
+    EQ_PRESETS,
+    CUSTOM_EQ_BANDS,
+    CUSTOM_EQ_RANGE,
+    FIND_LEFT,
+    FIND_RIGHT,
+)
 from .. import features, profiles
 
 
@@ -296,6 +304,7 @@ class DevicePage(Gtk.Box):
         # tray menu offered them. Rebuilt when the set of answered keys changes.
         self._feature_keys_shown: tuple | None = None
         self._feature_widgets: dict[str, tuple] = {}
+        self._feature_levels: dict[str, Gtk.Scale] = {}
         self._updating_ui = False
         self._bt_conn_handler = bt_manager.connect("device-connected", self._on_bt_device_connected)
         self._bt_disc_handler = bt_manager.connect("device-disconnected", self._on_bt_device_disconnected)
@@ -422,6 +431,25 @@ class DevicePage(Gtk.Box):
         self._features_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self._features_box.set_margin_bottom(4)
         page.append(self._features_box)
+
+        page.append(_section("FIND MY EARBUDS"))
+        find_note = Gtk.Label(label="Loud tone, played inside the earbud: take it out of your ear first.")
+        find_note.set_xalign(0)
+        find_note.set_wrap(True)
+        find_note.add_css_class("dim-label")
+        page.append(find_note)
+        find_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        find_row.set_margin_bottom(4)
+        for text, side, on in (
+            ("Ring left", FIND_LEFT, True),
+            ("Ring right", FIND_RIGHT, True),
+            ("Stop", None, False),
+        ):
+            btn = Gtk.Button(label=text)
+            btn.add_css_class("eq-button")
+            btn.connect("clicked", self._on_find_clicked, side, on)
+            find_row.append(btn)
+        page.append(find_row)
 
         page.append(_section("SETTINGS"))
 
@@ -772,6 +800,11 @@ class DevicePage(Gtk.Box):
                 else:
                     on = cur[0] if isinstance(cur, tuple) else cur
                     widget.set_active(bool(on))
+                    scale = self._feature_levels.get(f.key)
+                    if scale is not None and isinstance(cur, tuple):
+                        lo, hi = f.level_range
+                        scale.set_value(max(lo, min(hi, int(cur[1]))))
+                        scale.set_sensitive(bool(on))
         finally:
             self._updating_ui = False
 
@@ -782,6 +815,7 @@ class DevicePage(Gtk.Box):
             self._features_box.remove(child)
             child = nxt
         self._feature_widgets = {}
+        self._feature_levels = {}
         prof = dev.model_profile
         for f in feats:
             label = prof.feature_label(f.key, f.label) if prof else f.label
@@ -805,6 +839,22 @@ class DevicePage(Gtk.Box):
                 row.append(sw)
                 self._feature_widgets[f.key] = ("toggle", sw, None)
             self._features_box.append(row)
+            if f.level_range and isinstance(dev.features.get(f.key), tuple):
+                lo, hi = f.level_range
+                lrow = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+                llbl = Gtk.Label(label="   Level")
+                llbl.set_xalign(0)
+                scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, lo, hi, 1)
+                scale.set_hexpand(True)
+                scale.set_digits(0)
+                scale.set_draw_value(True)
+                for mark in range(lo, hi + 1):
+                    scale.add_mark(mark, Gtk.PositionType.BOTTOM, None)
+                scale.connect("value-changed", self._on_feature_level, f.key)
+                lrow.append(llbl)
+                lrow.append(scale)
+                self._features_box.append(lrow)
+                self._feature_levels[f.key] = scale
             if f.note:
                 note = Gtk.Label(label=f.note)
                 note.set_xalign(0)
@@ -820,6 +870,22 @@ class DevicePage(Gtk.Box):
         idx = drop.get_selected()
         if 0 <= idx < len(values):
             self._nothing_dev.set_feature(key, values[idx])
+
+    def _on_feature_level(self, scale, key):
+        if self._updating_ui or not self._nothing_dev:
+            return
+        cur = self._nothing_dev.features.get(key)
+        if isinstance(cur, tuple):
+            self._nothing_dev.set_feature(key, (cur[0], int(scale.get_value())))
+
+    def _on_find_clicked(self, _btn, side, on):
+        if not self._nothing_dev:
+            return
+        if side is None:
+            for s in (FIND_LEFT, FIND_RIGHT):
+                self._nothing_dev.ring(s, False)
+        else:
+            self._nothing_dev.ring(side, on)
 
     def _on_feature_toggle(self, sw, _pspec, key):
         if self._updating_ui or not self._nothing_dev:

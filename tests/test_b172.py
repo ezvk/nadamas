@@ -188,3 +188,40 @@ def test_witness_old_behaviour_would_take_legacy_first():
     replies = {3: bytes([0x03]), 15: bytes([0x55])}
     first = next(ch for ch in [3, 15] if ch in replies)
     assert first == 3
+
+
+# ── trouver mes écouteurs (0xF002, chukfinley/nada) ───────────────────────────
+
+
+def test_ring_left_and_stop(mock_profiles):
+    from nadamas.protocol import _CMD_SET_FIND_DEVICE, FIND_LEFT
+
+    d = _dev()
+    d.ring(FIND_LEFT)
+    d.ring(FIND_LEFT, False)
+    assert _sent(d) == [(_CMD_SET_FIND_DEVICE, bytes([0x02, 1])), (_CMD_SET_FIND_DEVICE, bytes([0x02, 0]))]
+
+
+def test_ring_rejects_unknown_side(mock_profiles):
+    d = _dev()
+    d.ring(0x06)
+    assert _sent(d) == []
+
+
+# ── niveau d'Ultra Bass ───────────────────────────────────────────────────────
+
+
+def test_bass_boost_level_range_declared():
+    from nadamas import features
+
+    assert features.BY_KEY["bass_boost"].level_range == (1, 5)
+
+
+def test_bass_boost_level_write_keeps_enabled_byte(mock_profiles):
+    from nadamas import features
+
+    d = _dev()
+    d.features["bass_boost"] = (1, 2)
+    d.set_feature("bass_boost", (1, 4))
+    (cmd, payload), *_ = _sent(d)
+    assert cmd == features.BY_KEY["bass_boost"].write_cmd and payload == bytes([1, 4])

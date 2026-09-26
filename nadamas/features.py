@@ -99,6 +99,9 @@ class Feature:
     encode: Callable[[object], bytes] = _u8_out
     # Free-text note surfaced in the UI when the setting has a non-obvious cost.
     note: str = ""
+    # Pair-encoded toggles [enabled, level]: the range of the level byte, when
+    # the UI should offer it. None = keep the level as read, never edit it.
+    level_range: tuple[int, int] | None = None
 
 
 # ── the registry ──────────────────────────────────────────────────────────────
@@ -168,6 +171,10 @@ FEATURES: tuple[Feature, ...] = (
         kind="toggle",
         decode=_pair,
         encode=_pair_out,
+        # 1-5, as the official app sends (chukfinley/nada, BASS_LEVEL_MAX = 5).
+        # ⚠️ The firmware echoes anything it is given: a stock Ear (3a) and our
+        # CMF Buds Pro 2 both read back 6, outside the range. Shown clamped.
+        level_range=(1, 5),
     ),
     # Present on models that carry them; silent on the Ear (3a). Declared so the
     # UI picks them up automatically wherever they do answer.
