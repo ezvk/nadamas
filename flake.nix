@@ -29,7 +29,9 @@
 
           # setuptools-scm derives the version from git tags; the source that
           # reaches the builder has no .git, so pin it explicitly instead.
-          SETUPTOOLS_SCM_PRETEND_VERSION = "0.1.0";
+          # Under `env`: buildPythonApplication uses __structuredAttrs since
+          # nixpkgs 26.11, and a plain attribute is no longer exported.
+          env.SETUPTOOLS_SCM_PRETEND_VERSION = "0.1.0";
 
           build-system = with python.pkgs; [
             setuptools
@@ -68,8 +70,13 @@
           # the failure is silent: no notifications, and channel discovery falls
           # back to the probe list -- which happens to work, so the omission
           # would go unnoticed until a device needed the SDP path.
+          # One word per element: with __structuredAttrs each element reaches
+          # makeWrapper as a single argument.
           makeWrapperArgs = [
-            "--prefix PATH : ${
+            "--prefix"
+            "PATH"
+            ":"
+            "${
               pkgs.lib.makeBinPath [
                 pkgs.bluez
                 pkgs.libnotify
